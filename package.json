@@ -10,7 +10,6 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "generate": "npm run build && node dist/cli.js"
   },
