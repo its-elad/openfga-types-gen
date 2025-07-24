@@ -1,0 +1,27 @@
+{
+  "name": "openfga-types-gen",
+  "version": "1.0.0",
+  "description": "TypeScript type generator for OpenFGA authorization models",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "openfga-types-gen": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "generate": "npm run build && node dist/cli.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@openfga/sdk": "^0.9.0"
+  }
+}

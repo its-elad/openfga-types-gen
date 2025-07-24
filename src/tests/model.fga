@@ -1,0 +1,46 @@
+model
+  schema 1.1
+
+type user
+
+type organization
+  relations
+    define owner: [user]
+    define admin: [user] or owner
+    define member: [user] or admin
+    define can_create_team: admin or owner
+    define can_manage_games: admin or owner
+
+type team
+  relations
+    define member: [user]
+    define admin: [user] or member
+    define parent_organization: [organization]
+    define can_view_team: member or admin or member from parent_organization
+    define can_manage_team: admin or admin from parent_organization
+
+type game
+  relations
+    define owner: [user, organization]
+    define developer: [user, team]
+    define qa_tester: [user, team]
+    define belongs_to_organization: [organization]
+    define can_view: developer or qa_tester or member from belongs_to_organization
+    define can_edit: developer or admin from belongs_to_organization
+    define can_publish: owner or admin from belongs_to_organization
+
+type asset
+  relations
+    define owner: [user, team]
+    define parent_game: [game]
+    define contributor: [user]
+    define can_view: owner or contributor or can_view from parent_game
+    define can_edit: owner or contributor or can_edit from parent_game
+
+type project
+  relations
+    define owner: [user, team]
+    define parent_game: [game]
+    define developer: [user, team]
+    define can_view: owner or developer or can_view from parent_game
+    define can_edit: owner or developer or can_edit from parent_game

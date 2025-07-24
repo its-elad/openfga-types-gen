@@ -1,0 +1,7 @@
+{
+  "storeId": "01K0XR4EYFE9TZSZJ9V7A1R06H",
+  "authorizationModelId": "01K0XR8QKKDAAXQM0HZ3QJM3SJ",
+  "apiUrl": "http://localhost:8080",
+  "outputPath": "./generated",
+  "outputFileName": "fga-types.ts"
+}
