@@ -86,6 +86,8 @@ const tuple: FGATupleKey = userBuilder('user123', 'owner', 'user:alice');
 
 ## ⚙️ Configuration
 
+The tool supports configuration via both configuration files and environment variables. Configuration files take precedence over environment variables.
+
 ### Configuration File Options
 
 | Option | Type | Required | Default | Description |
@@ -97,8 +99,29 @@ const tuple: FGATupleKey = userBuilder('user123', 'owner', 'user:alice');
 | `outputFileName` | `string` | ❌ | `fga-types.ts` | Name of the generated TypeScript file |
 | `apiToken` | `string` | ❌ | - | API token for authenticated requests |
 
+### Environment Variables
+
+You can also configure the tool using environment variables. These are used as fallbacks when no config file exists or when specific values are not set in the config file.
+
+| Environment Variable | Corresponding Config Option | Description |
+|---------------------|----------------------------|-------------|
+| `FGA_STORE_ID` | `storeId` | Your OpenFGA store ID |
+| `FGA_API_URL` | `apiUrl` | OpenFGA API URL |
+| `FGA_MODEL_ID` | `authorizationModelId` | Specific authorization model ID |
+| `FGA_OUTPUT_PATH` | `outputPath` | Directory to output generated files |
+| `FGA_OUTPUT_FILE` | `outputFileName` | Name of the generated TypeScript file |
+| `FGA_API_TOKEN` | `apiToken` | API token for authenticated requests |
+
+### Configuration Priority
+
+The configuration is loaded in the following priority order:
+1. **Config file values** (highest priority)
+2. **Environment variables** 
+3. **Default values** (lowest priority)
+
 ### Example Configuration
 
+**Using a config file (`openfga-types.config.json`):**
 ```json
 {
   "storeId": "01K0XR4EYFE9TZSZJ9V7A1R06H",
@@ -108,6 +131,16 @@ const tuple: FGATupleKey = userBuilder('user123', 'owner', 'user:alice');
   "outputFileName": "fga-types.ts",
   "apiToken": "your-api-token"
 }
+```
+
+**Using environment variables (`.env` file):**
+```bash
+FGA_STORE_ID=01K0XR4EYFE9TZSZJ9V7A1R06H
+FGA_API_URL=http://localhost:8080
+FGA_MODEL_ID=01K0XR8QKKDAAXQM0HZ3QJM3SJ
+FGA_OUTPUT_PATH=./src/generated
+FGA_OUTPUT_FILE=fga-types.ts
+FGA_API_TOKEN=your-api-token
 ```
 
 ## 📝 Generated Types
