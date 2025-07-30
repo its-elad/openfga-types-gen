@@ -187,15 +187,20 @@ export type FGATupleKey =
 ### Utility Functions
 
 ```typescript
-// Type guard for validating tuple keys
-export function isFGATupleKey(tupleKey: SDKTupleKey): tupleKey is FGATupleKey;
+export function formatFGAObjectId<T extends FGAObjectType>(object: { type: T, id: string }): `${T}:${string}`;
 
-// Helper for creating type-safe tuple keys
-export function createTupleKeyBuilder<T extends string>(objectType: T);
+export function parseFGAObjectId(objectId: string): { type: FGAObjectType, id: string } | null;
+
+export function createTupleKey<T extends FGAObjectType>(
+  objectType: T,
+  objectId: string,
+  relation: (typeof relationsByObjectType)[T][number],
+  user: string,
+  condition?: RelationshipCondition,
+)
 
 // Validation functions
-export function isValidRelationForObjectType(objectType: string, relation: string): boolean;
-export function getRelationsForObjectType(objectType: string): readonly string[];
+export function isValidRelationForObjectType(objectType: FGAObjectType, relation: string): boolean;
 ```
 
 ### Model Metadata
