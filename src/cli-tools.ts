@@ -6,7 +6,7 @@ import {
 } from "@openfga/sdk";
 import { transformer } from "@openfga/syntax-transformer";
 import { TypeGenerator } from "./type-generator.js";
-import { promises as fs } from "fs";
+import { promises as fs, writeFileSync } from "fs";
 import path from "path";
 
 export interface GeneratorConfig {

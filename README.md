@@ -341,7 +341,7 @@ type game
     define can_edit: developer or admin from owner
 ```
 
-## � Package Distribution
+## 🔊 Package Distribution
 
 ### Creating an NPM Package
 
@@ -380,7 +380,7 @@ npm install ./openfga-types-gen-1.0.0.tgz
 npm install https://registry.npmjs.org/openfga-types-gen/-/openfga-types-gen-1.0.0.tgz
 ```
 
-## �🔧 Advanced Integration
+## 🔧 Advanced Integration
 
 ### Type Declaration Merging with OpenFGA SDK
 
