@@ -29,6 +29,7 @@ The OpenFGA TypeScript Types Generator automatically creates comprehensive TypeS
 
 - **🔒 Type-Safe**: Generates discriminated union types that prevent invalid object-relation combinations
 - **🚀 CLI Tool**: Simple command-line interface with configurable options
+- **📂 Flexible Input**: Load models from a local `.fga` DSL file, a `.json` model file, a modular `fga.mod` manifest, or directly from a running OpenFGA server
 - **📦 SDK Compatible**: Generates types that work seamlessly with the OpenFGA SDK
 - **🎯 Comprehensive**: Creates object types, relations, tuple keys, and utility functions
 - **⚡ Fast**: Fetches the latest or specific authorization models directly from OpenFGA
@@ -57,7 +58,23 @@ npm install
 
 ## 🚀 Quick Start
 
-1. **Create a configuration file** (`openfga-types.config.json`):
+**Option A — from a local model file (no server needed):**
+
+```bash
+openfga-types-gen --model-file ./model.fga
+```
+
+Or via config file (`openfga-types.config.json`):
+
+```json
+{
+  "modelFile": "./model.fga",
+  "outputPath": "./src/types",
+  "outputFileName": "fga-types.ts"
+}
+```
+
+**Option B — from a running OpenFGA server:**
 
 ```json
 {
@@ -92,8 +109,9 @@ The tool supports configuration via both configuration files and environment var
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `storeId` | `string` | ✅ | - | Your OpenFGA store ID |
-| `apiUrl` | `string` | ✅ | - | OpenFGA API URL (e.g., `http://localhost:8080`) |
+| `modelFile` | `string` | ❌ | - | Path to a local `.fga` DSL file, `.json` model, `fga.mod` manifest, or a directory containing `fga.mod`. When set, `storeId`/`apiUrl` are not needed |
+| `storeId` | `string` | ⚠️ | - | Your OpenFGA store ID (required when not using `modelFile`) |
+| `apiUrl` | `string` | ⚠️ | - | OpenFGA API URL (required when not using `modelFile`) |
 | `authorizationModelId` | `string` | ❌ | Latest model | Specific authorization model ID (uses latest if not provided) |
 | `outputPath` | `string` | ❌ | `./generated` | Directory to output generated files |
 | `outputFileName` | `string` | ❌ | `fga-types.ts` | Name of the generated TypeScript file |
@@ -105,6 +123,7 @@ You can also configure the tool using environment variables. These are used as f
 
 | Environment Variable | Corresponding Config Option | Description |
 |---------------------|----------------------------|-------------|
+| `FGA_MODEL_FILE` | `modelFile` | Path to a local `.fga`, `.json`, `fga.mod`, or directory containing `fga.mod` |
 | `FGA_STORE_ID` | `storeId` | Your OpenFGA store ID |
 | `FGA_API_URL` | `apiUrl` | OpenFGA API URL |
 | `FGA_MODEL_ID` | `authorizationModelId` | Specific authorization model ID |
@@ -115,13 +134,25 @@ You can also configure the tool using environment variables. These are used as f
 ### Configuration Priority
 
 The configuration is loaded in the following priority order:
-1. **Config file values** (highest priority)
-2. **Environment variables** 
-3. **Default values** (lowest priority)
+1. **CLI flags** (highest priority — e.g. `--model-file`, `--output-path`, `--output-file`)
+2. **Config file values**
+3. **Environment variables**
+4. **Default values** (lowest priority)
+
+For the model source, `modelFile` always takes precedence over `storeId`/`apiUrl`.
 
 ### Example Configuration
 
-**Using a config file (`openfga-types.config.json`):**
+**Option A — local file (`openfga-types.config.json`):**
+```json
+{
+  "modelFile": "./model.fga",
+  "outputPath": "./src/generated",
+  "outputFileName": "fga-types.ts"
+}
+```
+
+**Option B — OpenFGA server (`openfga-types.config.json`):**
 ```json
 {
   "storeId": "01K0XR4EYFE9TZSZJ9V7A1R06H",
@@ -135,9 +166,15 @@ The configuration is loaded in the following priority order:
 
 **Using environment variables (`.env` file):**
 ```bash
+# Option A
+FGA_MODEL_FILE=./model.fga
+
+# Option B
 FGA_STORE_ID=01K0XR4EYFE9TZSZJ9V7A1R06H
 FGA_API_URL=http://localhost:8080
 FGA_MODEL_ID=01K0XR8QKKDAAXQM0HZ3QJM3SJ
+
+# Common
 FGA_OUTPUT_PATH=./src/generated
 FGA_OUTPUT_FILE=fga-types.ts
 FGA_API_TOKEN=your-api-token
@@ -230,6 +267,23 @@ export const FGAModelMetadata = {
 # Use default config file (openfga-types.config.json)
 openfga-types-gen
 
+# Generate from a local .fga DSL file
+openfga-types-gen --model-file ./model.fga
+openfga-types-gen -m ./model.fga
+
+# Generate from a local JSON model file
+openfga-types-gen --model-file ./authorization-model.json
+
+# Generate from a modular model (fga.mod manifest)
+openfga-types-gen --model-file ./fga.mod
+
+# Generate from a directory containing fga.mod (auto-detected)
+openfga-types-gen --model-file ./models/
+
+# Override output location
+openfga-types-gen --model-file ./model.fga --output-path ./src/types --output-file fga.ts
+openfga-types-gen -m ./model.fga -o ./src/types -f fga.ts
+
 # Specify custom config file
 openfga-types-gen --config my-config.json
 openfga-types-gen -c my-config.json
@@ -238,6 +292,16 @@ openfga-types-gen -c my-config.json
 openfga-types-gen --help
 openfga-types-gen -h
 ```
+
+### All CLI Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--help` | `-h` | Show help message |
+| `--config <file>` | `-c` | Config file path (default: `openfga-types.config.json`) |
+| `--model-file <path>` | `-m` | Local `.fga`, `.json`, `fga.mod`, or directory containing `fga.mod` |
+| `--output-path <dir>` | `-o` | Output directory (default: `./generated`) |
+| `--output-file <name>` | `-f` | Output file name (default: `fga-types.ts`) |
 
 ### NPM Scripts
 
@@ -442,7 +506,8 @@ npm run dev
 ```
 src/
 ├── cli.ts              # CLI entry point
-├── index.ts            # Main generator logic and configuration
+├── cli-tools.ts        # Config loading, argument parsing, file/API model fetching
+├── index.ts            # Package exports
 └── type-generator.ts   # Core type generation engine
 ```
 

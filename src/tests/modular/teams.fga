@@ -1,0 +1,9 @@
+module teams
+
+type team
+  relations
+    define member: [user]
+    define admin: [user] or member
+    define parent_organization: [organization]
+    define can_view_team: member or admin or member from parent_organization
+    define can_manage_team: admin or admin from parent_organization

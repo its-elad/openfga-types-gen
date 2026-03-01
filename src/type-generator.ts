@@ -217,7 +217,7 @@ export class TypeGenerator {
     // Generate model metadata using string fallback
     toPrint.push("// Model Metadata");
     toPrint.push(`export const ${this.MODEL_METADATA_NAME} = {`);
-    toPrint.push(`  modelId: '${model.id}',`);
+    toPrint.push(`  modelId: ${model.id ? `'${model.id}'` : "undefined"},`);
     toPrint.push(`  schemaVersion: '${model.schema_version}',`);
     toPrint.push(`  objectTypes: [${objectTypes.map((t) => `'${t}'`).join(", ")}] as const,`);
     toPrint.push(`  relations: [${allRelations.map((r) => `'${r}'`).join(", ")}] as const,`);
