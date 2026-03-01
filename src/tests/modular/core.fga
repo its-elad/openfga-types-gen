@@ -1,0 +1,11 @@
+module core
+
+type user
+
+type organization
+  relations
+    define owner: [user]
+    define admin: [user] or owner
+    define member: [user] or admin
+    define can_create_team: admin or owner
+    define can_manage_games: admin or owner
