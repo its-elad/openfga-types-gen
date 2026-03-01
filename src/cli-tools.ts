@@ -37,21 +37,32 @@ const parseCliArgs = (): {
     outputFileName?: string;
   } = {};
 
+  const requireValue = (flag: string, index: number): string => {
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("-")) {
+      console.error(
+        `❌ Flag "${flag}" requires a value but none was provided.`,
+      );
+      process.exit(1);
+    }
+    return value;
+  };
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--help" || arg === "-h") {
       result.help = true;
     } else if (arg === "--config" || arg === "-c") {
-      result.config = args[i + 1];
+      result.config = requireValue(arg, i);
       i++;
     } else if (arg === "--model-file" || arg === "-m") {
-      result.modelFile = args[i + 1];
+      result.modelFile = requireValue(arg, i);
       i++;
     } else if (arg === "--output-path" || arg === "-o") {
-      result.outputPath = args[i + 1];
+      result.outputPath = requireValue(arg, i);
       i++;
     } else if (arg === "--output-file" || arg === "-f") {
-      result.outputFileName = args[i + 1];
+      result.outputFileName = requireValue(arg, i);
       i++;
     }
   }
@@ -68,7 +79,7 @@ Usage: openfga-types-gen [options]
 Options:
   -h, --help                    Show this help message
   -c, --config <file>           Specify config file (default: openfga-types.config.json)
-  -m, --model-file <file>       Path to a local .fga DSL or .json model file
+  -m, --model-file <file>       Path to a local .fga DSL, .json model or .mod
   -o, --output-path <dir>       Output directory for generated types (default: ./generated)
   -f, --output-file <filename>  Output file name (default: fga-types.ts)
 
@@ -157,13 +168,13 @@ const loadConfig = async (): Promise<GeneratorConfig> => {
   }
 
   const configPath = cliArgs.config || "openfga-types.config.json";
+  const fullConfigPath = path.resolve(process.cwd(), configPath);
 
   // Start with environment variables as base
   let config: Partial<GeneratorConfig> = loadConfigFromEnv();
 
   // Try to load and merge config file if it exists
   try {
-    const fullConfigPath = path.resolve(process.cwd(), configPath);
     const configFile = await fs.readFile(fullConfigPath, "utf-8");
     const fileConfig = JSON.parse(configFile);
 
@@ -172,20 +183,39 @@ const loadConfig = async (): Promise<GeneratorConfig> => {
 
     console.log(`📄 Config loaded from: ${configPath}`);
   } catch (error) {
-    // If we have a model file from CLI args, env vars, or the config file didn't exist
-    // but we still have enough to proceed, continue without error.
+    const isNotFound =
+      typeof error === "object" &&
+      error !== null &&
+      (error as NodeJS.ErrnoException).code === "ENOENT";
+    const configExplicitlyProvided = !!cliArgs.config;
+
+    if (!isNotFound) {
+      // File exists but could not be read or parsed — always fail fast.
+      console.error(`❌ Failed to load config file: ${fullConfigPath}`);
+      console.error(
+        error instanceof SyntaxError
+          ? `   Invalid JSON: ${error.message}`
+          : `   ${String(error)}`,
+      );
+      process.exit(1);
+    }
+
+    if (configExplicitlyProvided) {
+      // User explicitly passed --config but the file doesn't exist — fail fast.
+      console.error(`❌ Config file not found: ${fullConfigPath}`);
+      process.exit(1);
+    }
+
+    // Default config file simply isn't present — fall back to env vars / CLI flags.
     const hasFileSource = cliArgs.modelFile || config.modelFile;
     const hasApiSource = config.storeId && config.apiUrl;
 
     if (hasFileSource || hasApiSource) {
-      // Only show this if no explicit config was requested
-      if (hasApiSource)
-        console.log("📡 Using configuration from environment variables");
-    } else {
-      console.error(`❌ Error loading config file: ${configPath}`);
-      console.error(
-        "Please ensure the config file exists and is valid JSON, or set required environment variables.",
+      console.log(
+        "📡 Using configuration from environment variables or CLI flags",
       );
+    } else {
+      console.error(`❌ No config file found at: ${fullConfigPath}`);
       console.error("");
       console.error("You must provide either:");
       console.error(

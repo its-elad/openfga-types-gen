@@ -30,7 +30,7 @@ The OpenFGA TypeScript Types Generator automatically creates comprehensive TypeS
 - **🔒 Type-Safe**: Generates discriminated union types that prevent invalid object-relation combinations
 - **🚀 CLI Tool**: Simple command-line interface with configurable options
 - **📂 Flexible Input**: Load models from a local `.fga` DSL file, a `.json` model file, a modular `fga.mod` manifest, or directly from a running OpenFGA server
-- **�📦 SDK Compatible**: Generates types that work seamlessly with the OpenFGA SDK
+- **📦 SDK Compatible**: Generates types that work seamlessly with the OpenFGA SDK
 - **🎯 Comprehensive**: Creates object types, relations, tuple keys, and utility functions
 - **⚡ Fast**: Fetches the latest or specific authorization models directly from OpenFGA
 - **🔧 Configurable**: Customizable output paths, file names, and generation options
