@@ -1,6 +1,6 @@
 {
   "name": "openfga-types-gen",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "TypeScript type generator for OpenFGA authorization models",
   "type": "module",
   "main": "dist/index.js",
