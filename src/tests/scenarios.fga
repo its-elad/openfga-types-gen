@@ -1,0 +1,44 @@
+module scenarios
+
+# Base subject types
+type user
+
+type group
+  relations
+    define member: [user]   # gives us a userset target (group#member)
+
+type resource
+  relations
+    # 1. single direct type
+    define owner: [user]
+    # 2. self-referential object reference
+    define parent: [resource]
+    # 3. object-type reference (different type)
+    define parent_group: [group]
+    # 4. multiple direct types
+    define editor: [user, group]
+    # 5. wildcard
+    define public_viewer: [user:*]
+    # 6. direct + wildcard
+    define mixed_wildcard: [user, user:*]
+    # 7. userset reference
+    define userset_viewer: [group#member]
+    # 8. direct + userset reference
+    define mixed_userset: [user, group#member]
+    # 9. conditional
+    define timed_viewer: [user with time_cond]
+    # 10. conditional + direct (deduplicates to single user:${string})
+    define timed_editor: [user with time_cond, user]
+    # 11. computed only — no direct types
+    define computed: owner or editor
+    # 12. direct + computed (union of direct assignment and computed userset)
+    define direct_and_computed: [user] or owner
+    # 13. tuple-to-userset
+    define inherited: member from parent_group
+    # 14. computed intersection
+    define intersection: owner and editor
+
+condition time_cond(current_time: timestamp, grant_time: timestamp, grant_duration: duration) {
+  current_time < grant_time + grant_duration
+}
+

@@ -3,7 +3,6 @@ import ts from "typescript";
 
 const factory = ts.factory;
 
-
 export interface TypeGeneratorOptions {
   namespacePrefix?: string;
   includeUtilityTypes?: boolean;
@@ -27,7 +26,7 @@ export class TypeGenerator {
     this.TUPLE_KEY_TYPE_NAME = `${this.options.namespacePrefix}TupleKey`;
     this.ALL_RELATIONS_TYPE_NAME = `${this.options.namespacePrefix}Relation`;
     this.OBJECT_TYPE_NAME = `${this.options.namespacePrefix}ObjectType`;
-    this.MODEL_METADATA_NAME = `${this.options.namespacePrefix}ModelMetadata`
+    this.MODEL_METADATA_NAME = `${this.options.namespacePrefix}ModelMetadata`;
   }
 
   public generateTypes(model: AuthorizationModel): string {
@@ -116,44 +115,89 @@ export class TypeGenerator {
 
     // Generate discriminated union types for TupleKey using string fallback
     toPrint.push("// Discriminated Union Types for TupleKey");
-    toPrint.push("// These types ensure type safety by constraining relations based on object type");
+    toPrint.push("// These types ensure type safety by constraining relations and user types based on object type");
     toPrint.push("");
 
-    // Generate TupleKey types using TypeScript factory
-    const tupleKeyTypeMembers = Object.entries(relationsTypeNameByObjectType).map(([objectType, typeName]) => {
-      return factory.createTypeLiteralNode([
-        factory.createPropertySignature(
-          undefined,
-          "object",
-          undefined,
-          factory.createTemplateLiteralType(factory.createTemplateHead(`${objectType}:`), [
-            factory.createTemplateLiteralTypeSpan(
-              factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
-              factory.createTemplateTail("")
-            ),
-          ])
-        ),
-        factory.createPropertySignature(
-          undefined,
-          "relation",
-          undefined,
-          factory.createTypeReferenceNode(factory.createIdentifier(typeName))
-        ),
-        factory.createPropertySignature(undefined, "user", undefined, factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword)),
-        factory.createPropertySignature(
-          undefined,
-          "condition",
-          factory.createToken(ts.SyntaxKind.QuestionToken),
-          factory.createTypeReferenceNode("RelationshipCondition")
-        ),
-      ]);
-    });
+    // Extract directly-related user types per (objectType, relation)
+    const directUserTypesByRelation = this.extractDirectUserTypesByRelation(model.type_definitions || []);
 
-    toPrint.push("// Type-safe TupleKey that constrains relations based on object type");
+    // Generate one TupleKey type alias per object type, then combine into FGATupleKey
+    toPrint.push("// Per-object TupleKey types");
+    const perObjectTupleKeyTypeNames: string[] = [];
+
+    for (const [objectType, relations] of Object.entries(relationsByObject)) {
+      if (relations.length === 0) {
+        continue;
+      }
+      const perObjectTypeName = `${this.options.namespacePrefix}${this.capitalize(objectType)}TupleKey`;
+      perObjectTupleKeyTypeNames.push(perObjectTypeName);
+
+      const members: ts.TypeLiteralNode[] = relations.map((relation) => {
+        const userTypeRefs = directUserTypesByRelation[objectType]?.[relation] ?? [];
+
+        let userTypeNode: ts.TypeNode;
+        if (userTypeRefs.length === 0) {
+          // Computed / inherited relation – no direct assignments, fall back to string
+          userTypeNode = factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword);
+        } else {
+          // Deduplicate refs whose type signatures are identical (e.g. [user with cond, user] → user:${string} twice)
+          const seen = new Set<string>();
+          const uniqueRefs = userTypeRefs.filter((ref) => {
+            const key = `${ref.type}|${ref.relation ?? ""}|${ref.wildcard ?? false}`;
+            if (seen.has(key)) {
+              return false;
+            } else {
+              seen.add(key);
+              return true;
+            }
+          });
+          const nodes = uniqueRefs.map((ref) => this.buildUserTypeLiteralNode(ref));
+          userTypeNode = nodes.length === 1 ? nodes[0] : factory.createUnionTypeNode(nodes);
+        }
+
+        return factory.createTypeLiteralNode([
+          factory.createPropertySignature(
+            undefined,
+            "object",
+            undefined,
+            factory.createTemplateLiteralType(factory.createTemplateHead(`${objectType}:`), [
+              factory.createTemplateLiteralTypeSpan(
+                factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+                factory.createTemplateTail("")
+              ),
+            ])
+          ),
+          factory.createPropertySignature(
+            undefined,
+            "relation",
+            undefined,
+            factory.createLiteralTypeNode(factory.createStringLiteral(relation))
+          ),
+          factory.createPropertySignature(undefined, "user", undefined, userTypeNode),
+          factory.createPropertySignature(
+            undefined,
+            "condition",
+            factory.createToken(ts.SyntaxKind.QuestionToken),
+            factory.createTypeReferenceNode("RelationshipCondition")
+          ),
+        ]);
+      });
+
+      const perObjectTypeAlias = this.createTypeAliasDeclaration(
+        perObjectTypeName,
+        members.length > 0 ? factory.createUnionTypeNode(members) : factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
+      );
+      toPrint.push(perObjectTypeAlias);
+      toPrint.push("");
+    }
+
+    toPrint.push("// Type-safe TupleKey — union of all per-object TupleKey types");
     const tupleKeyTypeAlias = this.createTypeAliasDeclaration(
       this.TUPLE_KEY_TYPE_NAME,
-      tupleKeyTypeMembers.length > 0
-        ? factory.createUnionTypeNode(tupleKeyTypeMembers)
+      perObjectTupleKeyTypeNames.length > 0
+        ? factory.createUnionTypeNode(
+            perObjectTupleKeyTypeNames.map((name) => factory.createTypeReferenceNode(factory.createIdentifier(name)))
+          )
         : factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
     );
     toPrint.push(tupleKeyTypeAlias);
@@ -162,7 +206,6 @@ export class TypeGenerator {
     // Generate utility types if requested using string fallback
     if (this.options.includeUtilityTypes) {
       toPrint.push("// Utility Types");
-      toPrint.push("");
 
       // Type for extracting object type from object string
       toPrint.push("export type ExtractObjectType<T extends string> = T extends `${infer U}:${string}` ? U : never;");
@@ -260,11 +303,13 @@ export class TypeGenerator {
     toPrint.push("/**");
     toPrint.push(" * Creates a type-safe tuple key for a specific object type");
     toPrint.push(" */");
-    toPrint.push(`export function createTupleKey<T extends ${this.OBJECT_TYPE_NAME}>(`);
+    toPrint.push(
+      `export function createTupleKey<T extends ${this.OBJECT_TYPE_NAME}, R extends (typeof ${this.RELATIONS_BY_OBJECT_TYPE_NAME})[T][number]>(`
+    );
     toPrint.push("  objectType: T,");
     toPrint.push("  objectId: string,");
-    toPrint.push(`  relation: (typeof ${this.RELATIONS_BY_OBJECT_TYPE_NAME})[T][number],`);
-    toPrint.push("  user: string,");
+    toPrint.push(`  relation: R,`);
+    toPrint.push(`  user: Extract<${this.TUPLE_KEY_TYPE_NAME}, { object: \`\${T}:\${string}\`, relation: R }>["user"],`);
     toPrint.push("  condition?: RelationshipCondition,");
     toPrint.push(") {");
     toPrint.push("  return {");
@@ -303,6 +348,64 @@ export class TypeGenerator {
     });
 
     return result;
+  }
+
+  // -------------------------------------------------------------------
+  // Helpers for type-safe user types in FGATupleKey
+  // -------------------------------------------------------------------
+
+  /** Returns a map of  objectType → relation → list of directly-relatable user type references. */
+  private extractDirectUserTypesByRelation(
+    typeDefinitions: TypeDefinition[]
+  ): Record<string, Record<string, Array<{ type: string; relation?: string; wildcard?: boolean }>>> {
+    const result: Record<string, Record<string, Array<{ type: string; relation?: string; wildcard?: boolean }>>> = {};
+
+    typeDefinitions.forEach((typeDef) => {
+      result[typeDef.type] = {};
+      const metadataRelations = typeDef.metadata?.relations ?? {};
+
+      Object.keys(typeDef.relations ?? {}).forEach((relationName) => {
+        const meta = metadataRelations[relationName];
+        const refs: Array<{ type: string; relation?: string; wildcard?: boolean }> = [];
+
+        if (meta?.directly_related_user_types?.length) {
+          meta.directly_related_user_types.forEach((ref: any) => {
+            if (ref.wildcard !== undefined) {
+              refs.push({ type: ref.type, wildcard: true });
+            } else if (ref.relation) {
+              refs.push({ type: ref.type, relation: ref.relation });
+            } else {
+              refs.push({ type: ref.type });
+            }
+          });
+        }
+
+        result[typeDef.type][relationName] = refs;
+      });
+    });
+
+    return result;
+  }
+
+  /** Builds a TypeScript template-literal (or string-literal) type node for one user-type reference. */
+  private buildUserTypeLiteralNode(ref: { type: string; relation?: string; wildcard?: boolean }): ts.TypeNode {
+    if (ref.wildcard) {
+      // `user:*`  →  literal string "user:*"
+      return factory.createLiteralTypeNode(factory.createStringLiteral(`${ref.type}:*`));
+    }
+    if (ref.relation) {
+      // `organization:${string}#member`
+      return factory.createTemplateLiteralType(factory.createTemplateHead(`${ref.type}:`), [
+        factory.createTemplateLiteralTypeSpan(
+          factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+          factory.createTemplateTail(`#${ref.relation}`)
+        ),
+      ]);
+    }
+    // `user:${string}`
+    return factory.createTemplateLiteralType(factory.createTemplateHead(`${ref.type}:`), [
+      factory.createTemplateLiteralTypeSpan(factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword), factory.createTemplateTail("")),
+    ]);
   }
 
   private categorizeRelations(typeDefinitions: TypeDefinition[]): Record<string, string[]> {
