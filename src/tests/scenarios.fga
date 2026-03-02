@@ -35,6 +35,8 @@ type resource
     define direct_and_computed: [user] or owner
     # 13. tuple-to-userset
     define inherited: member from parent_group
+    # 14. computed intersection
+    define intersection: owner and editor
 
 condition time_cond(current_time: timestamp, grant_time: timestamp, grant_duration: duration) {
   current_time < grant_time + grant_duration

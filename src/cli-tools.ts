@@ -1,12 +1,8 @@
-import {
-  OpenFgaApi,
-  Configuration,
-  CredentialsMethod,
-  AuthorizationModel,
-} from "@openfga/sdk";
+import { OpenFgaApi, Configuration, CredentialsMethod, AuthorizationModel } from "@openfga/sdk";
 import { transformer } from "@openfga/syntax-transformer";
 import { TypeGenerator } from "./type-generator.js";
-import { promises as fs, writeFileSync } from "fs";
+import { parseAuthorizationModel } from "./model-parser.js";
+import { promises as fs } from "fs";
 import path from "path";
 
 export interface GeneratorConfig {
@@ -14,10 +10,14 @@ export interface GeneratorConfig {
   modelFile?: string;
   storeId?: string;
   apiUrl?: string;
-  authorizationModelId?: string;
-  outputPath?: string;
-  outputFileName?: string;
   apiToken?: string;
+  authorizationModelId?: string;
+  outputPath: string;
+  outputFileName: string;
+  /** When true, also runs the model parser and writes a JSON file. Default: false. */
+  parseModel: boolean;
+  /** Output file name for the parsed model JSON. Default: parsed.json */
+  parsedOutputFileName: string;
 }
 
 // CLI argument parsing
@@ -27,6 +27,8 @@ const parseCliArgs = (): {
   modelFile?: string;
   outputPath?: string;
   outputFileName?: string;
+  parseModel?: boolean;
+  parsedOutputFileName?: string;
 } => {
   const args = process.argv.slice(2);
   const result: {
@@ -35,14 +37,14 @@ const parseCliArgs = (): {
     modelFile?: string;
     outputPath?: string;
     outputFileName?: string;
+    parseModel?: boolean;
+    parsedOutputFileName?: string;
   } = {};
 
   const requireValue = (flag: string, index: number): string => {
     const value = args[index + 1];
     if (value === undefined || value.startsWith("-")) {
-      console.error(
-        `❌ Flag "${flag}" requires a value but none was provided.`,
-      );
+      console.error(`❌ Flag "${flag}" requires a value but none was provided.`);
       process.exit(1);
     }
     return value;
@@ -64,6 +66,11 @@ const parseCliArgs = (): {
     } else if (arg === "--output-file" || arg === "-f") {
       result.outputFileName = requireValue(arg, i);
       i++;
+    } else if (arg === "--parse-model" || arg === "-p") {
+      result.parseModel = true;
+    } else if (arg === "--parsed-file" || arg === "-P") {
+      result.parsedOutputFileName = requireValue(arg, i);
+      i++;
     }
   }
 
@@ -82,6 +89,8 @@ Options:
   -m, --model-file <file>       Path to a local .fga DSL, .json model or .mod
   -o, --output-path <dir>       Output directory for generated types (default: ./generated)
   -f, --output-file <filename>  Output file name (default: fga-types.ts)
+  -p, --parse-model             Also parse the model and write a JSON file (default: false)
+  -P, --parsed-file <filename>  Output file name for the parsed model JSON (default: fga-model-parsed.json)
 
 Examples:
   openfga-types-gen
@@ -89,6 +98,8 @@ Examples:
   openfga-types-gen --model-file ./model.fga
   openfga-types-gen --model-file ./model.fga --output-path ./src/types --output-file fga.ts
   openfga-types-gen --model-file ./authorization-model.json
+  openfga-types-gen --model-file ./model.fga --parse-model
+  openfga-types-gen --model-file ./model.fga --parse-model --parsed-file my-parsed.json
 
 Configuration file format (JSON):
 
@@ -96,7 +107,9 @@ Configuration file format (JSON):
   {
     "modelFile": "./model.fga",
     "outputPath": "./generated",
-    "outputFileName": "fga-types.ts"
+    "outputFileName": "fga-types.ts",
+    "parseModel": true,
+    "parsedOutputFileName": "fga-model-parsed.json"
   }
 
   # Option B – fetch model from a running OpenFGA server:
@@ -117,6 +130,8 @@ Environment Variables (used as fallback if config file is missing or values are 
   FGA_OUTPUT_PATH        Output directory path (default: ./generated)
   FGA_OUTPUT_FILE        Output file name (default: fga-types.ts)
   FGA_API_TOKEN          API token for authentication (optional)
+  FGA_PARSE_MODEL        Set to "true" to also parse the model and write a JSON file (default: false)
+  FGA_PARSED_FILE        Output file name for the parsed model JSON (default: fga-model-parsed.json)
 
 Configuration priority: CLI flag > config file > environment variables > defaults
 Input priority: --model-file (or modelFile) takes precedence over API connection settings.
@@ -156,6 +171,14 @@ const loadConfigFromEnv = (): Partial<GeneratorConfig> => {
     config.apiToken = process.env.FGA_API_TOKEN;
   }
 
+  if (process.env.FGA_PARSE_MODEL === "true") {
+    config.parseModel = true;
+  }
+
+  if (process.env.FGA_PARSED_FILE) {
+    config.parsedOutputFileName = process.env.FGA_PARSED_FILE;
+  }
+
   return config;
 };
 
@@ -183,20 +206,13 @@ const loadConfig = async (): Promise<GeneratorConfig> => {
 
     console.log(`📄 Config loaded from: ${configPath}`);
   } catch (error) {
-    const isNotFound =
-      typeof error === "object" &&
-      error !== null &&
-      (error as NodeJS.ErrnoException).code === "ENOENT";
+    const isNotFound = typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "ENOENT";
     const configExplicitlyProvided = !!cliArgs.config;
 
     if (!isNotFound) {
       // File exists but could not be read or parsed — always fail fast.
       console.error(`❌ Failed to load config file: ${fullConfigPath}`);
-      console.error(
-        error instanceof SyntaxError
-          ? `   Invalid JSON: ${error.message}`
-          : `   ${String(error)}`,
-      );
+      console.error(error instanceof SyntaxError ? `   Invalid JSON: ${error.message}` : `   ${String(error)}`);
       process.exit(1);
     }
 
@@ -211,19 +227,13 @@ const loadConfig = async (): Promise<GeneratorConfig> => {
     const hasApiSource = config.storeId && config.apiUrl;
 
     if (hasFileSource || hasApiSource) {
-      console.log(
-        "📡 Using configuration from environment variables or CLI flags",
-      );
+      console.log("📡 Using configuration from environment variables or CLI flags");
     } else {
       console.error(`❌ No config file found at: ${fullConfigPath}`);
       console.error("");
       console.error("You must provide either:");
-      console.error(
-        "  A) A local model file:  --model-file ./model.fga  (or modelFile in config)",
-      );
-      console.error(
-        "  B) An OpenFGA server:   FGA_STORE_ID + FGA_API_URL  (or storeId + apiUrl in config)",
-      );
+      console.error("  A) A local model file:  --model-file ./model.fga  (or modelFile in config)");
+      console.error("  B) An OpenFGA server:   FGA_STORE_ID + FGA_API_URL  (or storeId + apiUrl in config)");
       console.error("");
       console.error("Use --help for more information.");
       process.exit(1);
@@ -240,21 +250,23 @@ const loadConfig = async (): Promise<GeneratorConfig> => {
   if (cliArgs.outputFileName) {
     config.outputFileName = cliArgs.outputFileName;
   }
+  if (cliArgs.parseModel) {
+    config.parseModel = true;
+  }
+  if (cliArgs.parsedOutputFileName) {
+    config.parsedOutputFileName = cliArgs.parsedOutputFileName;
+  }
 
   // Validate: need either a model file OR (storeId + apiUrl)
   if (!config.modelFile && !config.storeId) {
     console.error("❌ Missing required configuration.");
-    console.error(
-      "Provide either --model-file <path> or set storeId (FGA_STORE_ID) in config.",
-    );
+    console.error("Provide either --model-file <path> or set storeId (FGA_STORE_ID) in config.");
     process.exit(1);
   }
 
   if (!config.modelFile && !config.apiUrl) {
     console.error("❌ Missing required field: apiUrl");
-    console.error(
-      "Set FGA_API_URL environment variable or provide it in config file.",
-    );
+    console.error("Set FGA_API_URL environment variable or provide it in config file.");
     process.exit(1);
   }
 
@@ -267,6 +279,8 @@ const loadConfig = async (): Promise<GeneratorConfig> => {
     outputPath: config.outputPath || "./generated",
     outputFileName: config.outputFileName || "fga-types.ts",
     apiToken: config.apiToken,
+    parseModel: config.parseModel ?? false,
+    parsedOutputFileName: config.parsedOutputFileName || "fga-model-parsed.json",
   };
 };
 
@@ -274,9 +288,7 @@ const loadConfig = async (): Promise<GeneratorConfig> => {
  * Loads an AuthorizationModel from a local .fga DSL, .json, or .fga.mod modular model.
  * Also accepts a directory path, in which case it looks for a fga.mod file inside it.
  */
-const loadModelFromFile = async (
-  filePath: string,
-): Promise<AuthorizationModel> => {
+const loadModelFromFile = async (filePath: string): Promise<AuthorizationModel> => {
   let fullPath = path.resolve(process.cwd(), filePath);
 
   // If a directory is given, look for fga.mod inside it
@@ -296,9 +308,7 @@ const loadModelFromFile = async (
     const manifest = transformer.transformModFileToJSON(content);
 
     const schemaVersion: string = manifest.schema?.value ?? "1.2";
-    const moduleFiles: string[] = (manifest.contents?.value ?? []).map(
-      (entry) => entry.value,
-    );
+    const moduleFiles: string[] = (manifest.contents?.value ?? []).map((entry) => entry.value);
 
     if (moduleFiles.length === 0) {
       throw new Error("fga.mod file has no contents entries.");
@@ -311,20 +321,16 @@ const loadModelFromFile = async (
       moduleFiles.map(async (name) => ({
         name,
         contents: await fs.readFile(path.join(manifestDir, name), "utf-8"),
-      })),
+      }))
     );
 
     const model = transformer.transformModuleFilesToModel(files, schemaVersion);
-    console.log(
-      `🧩 Transformed modular model (schema: ${schemaVersion}, modules: ${moduleFiles.join(", ")})`,
-    );
+    console.log(`🧩 Transformed modular model (schema: ${schemaVersion}, modules: ${moduleFiles.join(", ")})`);
     return model as AuthorizationModel;
   } else if (ext === ".fga") {
     // Convert FGA DSL to JSON using @openfga/syntax-transformer
     const jsonModel = transformer.transformDSLToJSONObject(content);
-    console.log(
-      `🔄 Transformed DSL model (schema: ${jsonModel.schema_version})`,
-    );
+    console.log(`🔄 Transformed DSL model (schema: ${jsonModel.schema_version})`);
     return jsonModel as AuthorizationModel;
   } else if (ext === ".json") {
     const parsed = JSON.parse(content);
@@ -332,15 +338,14 @@ const loadModelFromFile = async (
     const model: AuthorizationModel = parsed.authorization_model ?? parsed;
     if (!model.schema_version || !model.type_definitions) {
       throw new Error(
-        `The JSON file does not appear to be a valid AuthorizationModel. ` +
-          `Expected fields: schema_version, type_definitions.`,
+        `The JSON file does not appear to be a valid AuthorizationModel. ` + `Expected fields: schema_version, type_definitions.`
       );
     }
     console.log(`📋 Loaded JSON model (schema: ${model.schema_version})`);
     return model;
   } else {
     throw new Error(
-      `Unsupported file extension "${ext}". Use .fga for DSL files, .json for JSON model files, or .mod for modular models (fga.mod).`,
+      `Unsupported file extension "${ext}". Use .fga for DSL files, .json for JSON model files, or .mod for modular models (fga.mod).`
     );
   }
 };
@@ -373,25 +378,14 @@ export const generateTypes = async () => {
       console.log("Fetching authorization model...");
 
       const response = config.authorizationModelId
-        ? await fgaApi.readAuthorizationModel(
-            config.storeId!,
-            config.authorizationModelId,
-          )
-        : await fgaApi
-            .readAuthorizationModels(config.storeId!, 1)
-            .then(async (models) => {
-              if (
-                !models.authorization_models ||
-                models.authorization_models.length === 0
-              ) {
-                throw new Error("No authorization models found");
-              }
-              const latestModel = models.authorization_models[0];
-              return fgaApi.readAuthorizationModel(
-                config.storeId!,
-                latestModel.id!,
-              );
-            });
+        ? await fgaApi.readAuthorizationModel(config.storeId!, config.authorizationModelId)
+        : await fgaApi.readAuthorizationModels(config.storeId!, 1).then(async (models) => {
+            if (!models.authorization_models || models.authorization_models.length === 0) {
+              throw new Error("No authorization models found");
+            }
+            const latestModel = models.authorization_models[0];
+            return fgaApi.readAuthorizationModel(config.storeId!, latestModel.id!);
+          });
 
       if (!response.authorization_model) {
         throw new Error("No authorization model found");
@@ -407,8 +401,8 @@ export const generateTypes = async () => {
     const typeDefinitions = generator.generateTypes(authorizationModel);
 
     // Write to file
-    const outputPath = config.outputPath || "./generated";
-    const outputFileName = config.outputFileName || "fga-types.ts";
+    const outputPath = config.outputPath;
+    const outputFileName = config.outputFileName;
     const fullOutputPath = path.resolve(process.cwd(), outputPath);
     const fullOutputFile = path.join(fullOutputPath, outputFileName);
 
@@ -422,6 +416,14 @@ export const generateTypes = async () => {
     console.log(`📁 Output: ${fullOutputFile}`);
     if (authorizationModel.id) {
       console.log(`📊 Model ID: ${authorizationModel.id}`);
+    }
+
+    // ── Optional: parse the model and write a JSON file ──────────────────
+    if (config.parseModel) {
+      const parsedModel = parseAuthorizationModel(authorizationModel);
+      const parsedOutputFile = path.join(fullOutputPath, config.parsedOutputFileName);
+      await fs.writeFile(parsedOutputFile, JSON.stringify(parsedModel, null, 2), "utf-8");
+      console.log(`🔍 Parsed model written to: ${parsedOutputFile}`);
     }
   } catch (error) {
     console.error("❌ Error generating types:", error);
